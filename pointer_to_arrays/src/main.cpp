@@ -22,8 +22,8 @@ int main() {
 
     // Declare printf
     FunctionType *PrintfType = FunctionType::get(
-        IntegerType::getInt32Ty(Context), 
-        PointerType::getUnqual(Type::getInt8Ty(Context)), 
+        IntegerType::getInt32Ty(Context),
+        PointerType::getUnqual(Type::getInt8Ty(Context)),
         true
     );
     FunctionCallee PrintfFunc = TheModule->getOrInsertFunction("printf", PrintfType);
@@ -34,35 +34,53 @@ int main() {
     BasicBlock *Entry = BasicBlock::Create(Context, "entry", MainFunc);
     Builder.SetInsertPoint(Entry);
 
-    // Allocate fixed array [5 x i32]
-    ArrayType *ArrayTy = ArrayType::get(Type::getInt32Ty(Context), 5);
-    AllocaInst *ArrayAlloca = Builder.CreateAlloca(ArrayTy, nullptr, "array");
+    // Define array type: [3 x i32]
+    ArrayType *ArrayTy = ArrayType::get(Type::getInt32Ty(Context), 3);
 
-    // Store values into array
-    for (unsigned i = 0; i < 5; ++i) {
-        // Get pointer to array[i] using GEP
-        Value *IndexList[] = {
-            ConstantInt::get(Type::getInt32Ty(Context), 0),  // First index for the array
-            ConstantInt::get(Type::getInt32Ty(Context), i)   // Element index
-        };
-        Value *ElemPtr = Builder.CreateGEP(ArrayTy, ArrayAlloca, IndexList, "elem_ptr");
+    // Step 1: Allocate the actual array
+    AllocaInst *ArrayInst = Builder.CreateAlloca(ArrayTy, nullptr, "actual_array");
 
-        // Store integer i * 10
-        Builder.CreateStore(ConstantInt::get(Type::getInt32Ty(Context), i * 10), ElemPtr);
-    }
+    // Step 2: Allocate pointer to array type: [3 x i32]*
+    AllocaInst *ArrayPtr = Builder.CreateAlloca(PointerType::getUnqual(ArrayTy), nullptr, "array_ptr");
 
-    // Format string for printf
-    Constant *FormatStr = Builder.CreateGlobalStringPtr("Value at index %d: %d\n");
+    // Step 3: Store array address into the pointer
+    Builder.CreateStore(ArrayInst, ArrayPtr);
 
-    // Print each element using printf
-    for (unsigned i = 0; i < 5; ++i) {
+    // Store values into the array via pointer
+    for (unsigned i = 0; i < 3; ++i) {
+        // Load array pointer
+        Value *LoadedArray = Builder.CreateLoad(PointerType::getUnqual(ArrayTy), ArrayPtr, "loaded_array");
+
+        // GEP to get element address
         Value *IndexList[] = {
             ConstantInt::get(Type::getInt32Ty(Context), 0),
             ConstantInt::get(Type::getInt32Ty(Context), i)
         };
-        Value *ElemPtr = Builder.CreateGEP(ArrayTy, ArrayAlloca, IndexList, "elem_ptr");
+        Value *ElemPtr = Builder.CreateGEP(ArrayTy, LoadedArray, IndexList, "elem_ptr");
+
+        // Store value
+        Builder.CreateStore(ConstantInt::get(Type::getInt32Ty(Context), i * 10), ElemPtr);
+    }
+
+    // Create format string
+    Constant *FormatStr = Builder.CreateGlobalStringPtr("Value at index %d: %d\n");
+
+    // Load and print values via pointer
+    for (unsigned i = 0; i < 3; ++i) {
+        // Load the array pointer again
+        Value *LoadedArray = Builder.CreateLoad(PointerType::getUnqual(ArrayTy), ArrayPtr, "loaded_array");
+
+        // GEP to element
+        Value *IndexList[] = {
+            ConstantInt::get(Type::getInt32Ty(Context), 0),
+            ConstantInt::get(Type::getInt32Ty(Context), i)
+        };
+        Value *ElemPtr = Builder.CreateGEP(ArrayTy, LoadedArray, IndexList, "elem_ptr");
+
+        // Load value
         Value *LoadedVal = Builder.CreateLoad(Type::getInt32Ty(Context), ElemPtr, "load_val");
 
+        // Printf call
         Builder.CreateCall(PrintfFunc, {
             FormatStr,
             ConstantInt::get(Type::getInt32Ty(Context), i),
@@ -70,10 +88,10 @@ int main() {
         });
     }
 
-    // return 0;
+    // Return 0
     Builder.CreateRet(ConstantInt::get(Type::getInt32Ty(Context), 0));
 
-    // Verify & output the module
+    // Verify and output the module
     verifyFunction(*MainFunc);
     TheModule->print(outs(), nullptr);
 
